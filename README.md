@@ -1,8 +1,6 @@
 # X and Spiegel Scraper
 This repository is part of the project ["Diskurs Energiewende"](https://jonasrieger.github.io/2024/09/03/bmwk.html) and provides code for scraping posts from social media related to the energy transition and social inequality.
 
-To achieve this, let us first introduce the scraper-agent. A scraper-agent is an programm, which emulates a normal user, browsing the web. One scraper-agent is indepent of other scraper-agents and operates in an environemnt that has it's own OS, IP-Adress, browser etc.. We achieve this, by running each scraper-agent in a docker-container which can be easily instantiated from our `scraper-agent` image.
-
 ## Setup
 To run this setup you will need to install the requirements. For this navigate to the project:
 
