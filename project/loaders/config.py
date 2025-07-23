@@ -1,0 +1,23 @@
+# stores paths to information within fetched .ndjsons
+X_JSON_RETRIEVAL = {
+  "post_text": ["legacy", "full_text"],
+  "post_is_promoted": ["promoted"],
+  "post_created_at": ["legacy", "created_at"],
+  "post_views": ["views", "count"],
+  "source_user_name": ["core", "user_results", "result", "legacy", "name"],
+  "source_user_followers": ["core", "user_results", "result", "legacy", "followers_count"],
+  "source_user_description": ["core", "user_results", "result", "legacy", "description"],
+  "source_user_can_dm": ["core", "user_results", "result", "legacy", "can_dm"],
+  "source_user_possibly_sensitive": ["core", "user_results", "result", "legacy", "possibly_sensitive"],
+  "source_user_is_verified": ["core", "user_results", "result", "is_blue_verified"],
+  "post_possibly_sensitive": ["legacy", "possibly_sensitive"],
+  "post_qoute_count": ["legacy", "quote_count"],
+  "post_bookmark_count": ["legacy", "bookmark_count"],
+  "post_reply_count": ["legacy", "reply_count"],
+  "post_retweet_count": ["legacy", "retweet_count"],
+  "post_total_likes": ["legacy", "favorite_count"],
+  "post_language": ["legacy", "lang"],
+  "post_is_quote": ["legacy", "is_quote_status"],
+  "post_is_retweeted": ["legacy", "retweeted"],
+  "source_user_total_tweets": ["core", "user_results", "result", "legacy", "statuses_count"],
+}

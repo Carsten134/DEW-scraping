@@ -1,0 +1,9 @@
+# cached compilation
+*.pyc
+
+# jupyter notebooks
+*.ipynb
+
+# configuration files
+*.json
+.vscode
