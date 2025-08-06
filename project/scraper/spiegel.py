@@ -72,8 +72,11 @@ class SpiegelScraper:
                 debate = self.get_current_debate()
                 self.click_read_further(debate)
 
-                debate_json = SpiegelScraper.parse_debate(debate)
+                debate_json = self.parse_debate(debate)
                 self.data.append(debate_json)
+            
+            # navigate back home after scraping all debates
+            self.driver.get("https://www.spiegel.de/debatten/")
             self.search_queue.pop(0)
 
     def login(self):
@@ -155,11 +158,14 @@ class SpiegelScraper:
             ActionChains(self.driver).scroll_by_amount(0, offset).perform()
             time.sleep(sleep_after)
 
-    @classmethod
-    def parse_comment(cls, comment):
+    def parse_comment(self, comment):
         com_el = comment.text.split("\n")
         extracted = {}
-        extracted["user_name"] = com_el.pop(0)
+        candidate_username = com_el.pop(0)
+        if candidate_username == "Empfehlung":
+            extracted["user_name"] = com_el.pop(0)
+        else:
+            extracted["user_name"] = candidate_username
         extracted["user_points"] = com_el.pop(0)
         extracted["vote_yes"] = com_el.pop(0) == "Ja"
         extracted["posted_since"] = com_el.pop(0)
@@ -175,15 +181,14 @@ class SpiegelScraper:
         extracted["text"] = re.sub('"', "'", extracted["text"])
         return extracted
 
-    @classmethod
-    def parse_debate(cls, debate):
+    def parse_debate(self, debate):
         deb_el = debate.text.split("\n")
 
         extracted = {}
         extracted["date"] = deb_el.pop(0)
         extracted["status"] = deb_el.pop(0)
         extracted["title"] = deb_el.pop(0)
-        extracted["related"] = cls.parse_related(debate)
+        extracted["related"] = self.parse_related(debate)
 
         # extract keywords
         extracted["keywords"] = []
@@ -217,9 +222,9 @@ class SpiegelScraper:
                 By.CSS_SELECTOR, '*[data-testid="list-item"]')
 
             extracted["comments"] = [
-                SpiegelScraper.parse_comment(com) for com in yes_comments]
+                self.parse_comment(com) for com in yes_comments]
             extracted["comments"].extend(
-                [SpiegelScraper.parse_comment(com) for com in no_comments])
+                [self.parse_comment(com) for com in no_comments])
             return extracted
         else:
             extracted["comments"] = None
@@ -234,14 +239,25 @@ class SpiegelScraper:
         return comments.join(debate)
     
     @classmethod
-    def parse_related(cls, debate):
+    def editors_note_given(cls, debate):
+        child_elements = debate.find_elements(By.CSS_SELECTOR, ":scope > *")
+        # there are two possible sections: related articles and editors note
+        candidate_1 = child_elements[1]
+        candidate_2 = child_elements[2]
+        
+        is_in_1 = "Anmerkung der Redaktion" in candidate_1.text
+        is_in_2 = "Anmerkung der Redaktion" in candidate_2.text
+
+        return is_in_1 or is_in_2
+
+    def parse_related(self, debate):
         child_elements = debate.find_elements(By.CSS_SELECTOR, ":scope > *")
         # there are two possible sections: related articles and editors note
         candidate_1 = child_elements[1]
         candidate_2 = child_elements[2]
         
         # first identify the first candidate as editors note or related articels
-        is_articles_1 = "Artikel zur Debate" in candidate_1.text
+        is_articles_1 = "Artikel zur Debatte" in candidate_1.text
         is_editors_note_1 = "Anmerkung der Redaktion" in candidate_1.text
 
         related = {}
@@ -249,31 +265,31 @@ class SpiegelScraper:
         # the second candidate must be the comment section
         # and does not has to be parsed
         if is_editors_note_1:
-            related["editors_note"] = cls.parse_editors_note(candidate_1)
+            related["editors_note"] = self.parse_editors_note(candidate_1)
         
         # if candidate 1 is related articles
         # then check if editors note was given
         elif is_articles_1:
-            related["related_articles"] = cls.parse_related_articles(candidate_1)
+            articles = candidate_1.find_elements(By.CSS_SELECTOR, "a")
+            related["related_articles"] = [self.parse_related_articles(art) for art in articles]
             is_editors_note_2 = "Anmerkung der Redaktion" in candidate_2.text
             if is_editors_note_2:
-                related["editors_note"] = cls.parse_editors_note(candidate_2)
+                related["editors_note"] = self.parse_editors_note(candidate_2)
         
         return related
 
 
-
-    @classmethod
-    def parse_editors_note(cls, editors_element):
+    def parse_editors_note(self, editors_element):
         # fetch children and go into the text section
         text_scection = editors_element.find_elements(By.CSS_SELECTOR, ":scope > *")[1]
-        # fetch read futher button and click it
-        read_further = text_scection.find_element(By.CSS_SELECTOR, "span")
-        read_further.click()
-
         # fetch text and return it
         return text_scection.text
 
-    @classmethod
-    def parse_related_articles(cls, articles_element):
-        pass
+    def parse_related_articles(self, article):
+        extracted = {}
+        article_text_els = article.text.split("\n")
+        extracted["date_published"] = article_text_els[2]
+        extracted["title"] = article_text_els[3]
+        extracted["link"] = article.get_attribute("href")
+
+        return extracted
