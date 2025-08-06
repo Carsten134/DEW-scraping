@@ -38,7 +38,7 @@ class SpiegelScraper:
 
 
         # data
-        self.data = pd.DataFrame()
+        self.data = []
         # set downloadpath
         options = Options()
         options.set_preference("browser.download.folderList", 2)
@@ -73,8 +73,7 @@ class SpiegelScraper:
                 self.click_read_further(debate)
 
                 debate_json = SpiegelScraper.parse_debate(debate)
-                self.data = pd.concat(
-                    [self.data, SpiegelScraper.debate_dict_to_dataframe(debate_json)])
+                self.data.append(debate_json)
             self.search_queue.pop(0)
 
     def login(self):
@@ -88,7 +87,7 @@ class SpiegelScraper:
         # Now inside the iframe – wait for the consent button to be clickable
         accept_button = WebDriverWait(self.driver, 30).until(
             EC.element_to_be_clickable((
-                By.XPATH, "//button[normalize-space()='Einwilligen und weiter' or normalize-space()='Accept and continue']"
+                By.XPATH, "//button[normalize-space()='Einwilligen und weiter' or normalize-space()='Consent and continue']"
             ))
         )
         accept_button.click()
@@ -114,7 +113,7 @@ class SpiegelScraper:
         # Now inside the iframe – wait for the consent button to be clickable
         accept_button = WebDriverWait(self.driver, 30).until(
             EC.element_to_be_clickable((
-                By.XPATH, "//button[normalize-space()='Einwilligen und weiter' or normalize-space()='Accept and continue']"
+                By.XPATH, "//button[normalize-space()='Einwilligen und weiter' or normalize-space()='Consent and continue']"
             ))
         )
         accept_button.click()
@@ -184,6 +183,7 @@ class SpiegelScraper:
         extracted["date"] = deb_el.pop(0)
         extracted["status"] = deb_el.pop(0)
         extracted["title"] = deb_el.pop(0)
+        extracted["related"] = cls.parse_related(debate)
 
         # extract keywords
         extracted["keywords"] = []
@@ -202,18 +202,28 @@ class SpiegelScraper:
         extracted["votes_no"] = deb_el.pop(0)
 
         comment_area = debate.find_element(By.CSS_SELECTOR, "#debate-content")
-        comments = comment_area.find_elements(By.CSS_SELECTOR, "ul")
-        yes_comments = comments[0].find_elements(
-            By.CSS_SELECTOR, '*[data-testid="list-item"]')
-        no_comments = comments[1].find_elements(
-            By.CSS_SELECTOR, '*[data-testid="list-item"]')
+        if comment_area:
+            comments = comment_area.find_elements(By.CSS_SELECTOR, "ul")
+        else:
+            extracted["comments"] = None
+            return extracted
+        
+        # check whether the comment section is split into
+        # two columns for now only scrape comments, when there is this layout
+        if len(comments) > 1:
+            yes_comments = comments[0].find_elements(
+                By.CSS_SELECTOR, '*[data-testid="list-item"]')
+            no_comments = comments[1].find_elements(
+                By.CSS_SELECTOR, '*[data-testid="list-item"]')
 
-        extracted["comments"] = [
-            SpiegelScraper.parse_comment(com) for com in yes_comments]
-        extracted["comments"].extend(
-            [SpiegelScraper.parse_comment(com) for com in no_comments])
-
-        return extracted
+            extracted["comments"] = [
+                SpiegelScraper.parse_comment(com) for com in yes_comments]
+            extracted["comments"].extend(
+                [SpiegelScraper.parse_comment(com) for com in no_comments])
+            return extracted
+        else:
+            extracted["comments"] = None
+            return extracted
 
     @classmethod
     def debate_dict_to_dataframe(cls, debate):
@@ -222,3 +232,48 @@ class SpiegelScraper:
         debate.pop("comments")
         debate = pd.DataFrame(debate, index=range(len(comments)))
         return comments.join(debate)
+    
+    @classmethod
+    def parse_related(cls, debate):
+        child_elements = debate.find_elements(By.CSS_SELECTOR, ":scope > *")
+        # there are two possible sections: related articles and editors note
+        candidate_1 = child_elements[1]
+        candidate_2 = child_elements[2]
+        
+        # first identify the first candidate as editors note or related articels
+        is_articles_1 = "Artikel zur Debate" in candidate_1.text
+        is_editors_note_1 = "Anmerkung der Redaktion" in candidate_1.text
+
+        related = {}
+        # since editor notes are always named last,
+        # the second candidate must be the comment section
+        # and does not has to be parsed
+        if is_editors_note_1:
+            related["editors_note"] = cls.parse_editors_note(candidate_1)
+        
+        # if candidate 1 is related articles
+        # then check if editors note was given
+        elif is_articles_1:
+            related["related_articles"] = cls.parse_related_articles(candidate_1)
+            is_editors_note_2 = "Anmerkung der Redaktion" in candidate_2.text
+            if is_editors_note_2:
+                related["editors_note"] = cls.parse_editors_note(candidate_2)
+        
+        return related
+
+
+
+    @classmethod
+    def parse_editors_note(cls, editors_element):
+        # fetch children and go into the text section
+        text_scection = editors_element.find_elements(By.CSS_SELECTOR, ":scope > *")[1]
+        # fetch read futher button and click it
+        read_further = text_scection.find_element(By.CSS_SELECTOR, "span")
+        read_further.click()
+
+        # fetch text and return it
+        return text_scection.text
+
+    @classmethod
+    def parse_related_articles(cls, articles_element):
+        pass
