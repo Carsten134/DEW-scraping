@@ -14,6 +14,7 @@ import os
 import time
 
 from scraper.config import SPIEGEL_LOG_DIR
+from scraper.spiegel_ui.debate import SpiegelDebate
 
 
 class SpiegelScraper:
@@ -36,7 +37,6 @@ class SpiegelScraper:
         # resolve searchterms
         self.search_queue = run_config["searchTerms"]
 
-
         # data
         self.data = []
         # set downloadpath
@@ -56,7 +56,7 @@ class SpiegelScraper:
         else:
             self.driver = webdriver.Firefox(options=options)
 
-    def run(self, continued = False):
+    def run(self, continued=False):
         if not continued:
             self.login()
 
@@ -72,9 +72,9 @@ class SpiegelScraper:
                 debate = self.get_current_debate()
                 self.click_read_further(debate)
 
-                debate_json = self.parse_debate(debate)
+                debate_json = SpiegelDebate(debate).to_dict()
                 self.data.append(debate_json)
-            
+
             # navigate back home after scraping all debates
             self.driver.get("https://www.spiegel.de/debatten/")
             self.search_queue.pop(0)
@@ -126,7 +126,8 @@ class SpiegelScraper:
         # click the cross on the subscription banner
         close_banner = WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located(
-                (By.CSS_SELECTOR, 'button[onClick="atExperienceInteractAndClose()"]')
+                (By.CSS_SELECTOR,
+                 'button[onClick="atExperienceInteractAndClose()"]')
             )
         )
         close_banner.click()
@@ -151,84 +152,12 @@ class SpiegelScraper:
             re.findall("Weiterlesen", el.get_attribute("innerHTML")))]
         for el in weiterlesen:
             el.click()
-    
-    def scroll(self, times, offset = 300, sleep = 1, sleep_after = 0):
+
+    def scroll(self, times, offset=300, sleep=1, sleep_after=0):
         for _ in range(times):
             time.sleep(sleep)
             ActionChains(self.driver).scroll_by_amount(0, offset).perform()
             time.sleep(sleep_after)
-
-    def parse_comment(self, comment):
-        com_el = comment.text.split("\n")
-        extracted = {}
-        candidate_username = com_el.pop(0)
-        if candidate_username == "Empfehlung":
-            extracted["user_name"] = com_el.pop(0)
-        else:
-            extracted["user_name"] = candidate_username
-        extracted["user_points"] = com_el.pop(0)
-        extracted["vote_yes"] = com_el.pop(0) == "Ja"
-        extracted["posted_since"] = com_el.pop(0)
-        extracted["text"] = ""
-        next_el = ""
-        while (not next_el == "Weniger anzeigen") and (not next_el == "Weiterlesen"):
-            if len(com_el) > 1:
-                extracted["text"] += com_el.pop(0)
-                next_el = com_el[0]
-            else:
-                break
-        # avoid double quotes in comments
-        extracted["text"] = re.sub('"', "'", extracted["text"])
-        return extracted
-
-    def parse_debate(self, debate):
-        deb_el = debate.text.split("\n")
-
-        extracted = {}
-        extracted["date"] = deb_el.pop(0)
-        extracted["status"] = deb_el.pop(0)
-        extracted["title"] = deb_el.pop(0)
-        extracted["related"] = self.parse_related(debate)
-
-        # extract keywords
-        extracted["keywords"] = []
-        next_el = ""
-        while not len(re.findall("\d", next_el)):
-            extracted["keywords"].append(deb_el.pop(0))
-            next_el = deb_el[0]
-
-        extracted["num_votes"] = deb_el.pop(0)
-        extracted["num_comments"] = deb_el.pop(0)
-
-        deb_el.pop(0)
-        deb_el.pop(0)
-        extracted["votes_yes"] = deb_el.pop(0)
-        deb_el.pop(0)
-        extracted["votes_no"] = deb_el.pop(0)
-
-        comment_area = debate.find_element(By.CSS_SELECTOR, "#debate-content")
-        if comment_area:
-            comments = comment_area.find_elements(By.CSS_SELECTOR, "ul")
-        else:
-            extracted["comments"] = None
-            return extracted
-        
-        # check whether the comment section is split into
-        # two columns for now only scrape comments, when there is this layout
-        if len(comments) > 1:
-            yes_comments = comments[0].find_elements(
-                By.CSS_SELECTOR, '*[data-testid="list-item"]')
-            no_comments = comments[1].find_elements(
-                By.CSS_SELECTOR, '*[data-testid="list-item"]')
-
-            extracted["comments"] = [
-                self.parse_comment(com) for com in yes_comments]
-            extracted["comments"].extend(
-                [self.parse_comment(com) for com in no_comments])
-            return extracted
-        else:
-            extracted["comments"] = None
-            return extracted
 
     @classmethod
     def debate_dict_to_dataframe(cls, debate):
@@ -237,59 +166,3 @@ class SpiegelScraper:
         debate.pop("comments")
         debate = pd.DataFrame(debate, index=range(len(comments)))
         return comments.join(debate)
-    
-    @classmethod
-    def editors_note_given(cls, debate):
-        child_elements = debate.find_elements(By.CSS_SELECTOR, ":scope > *")
-        # there are two possible sections: related articles and editors note
-        candidate_1 = child_elements[1]
-        candidate_2 = child_elements[2]
-        
-        is_in_1 = "Anmerkung der Redaktion" in candidate_1.text
-        is_in_2 = "Anmerkung der Redaktion" in candidate_2.text
-
-        return is_in_1 or is_in_2
-
-    def parse_related(self, debate):
-        child_elements = debate.find_elements(By.CSS_SELECTOR, ":scope > *")
-        # there are two possible sections: related articles and editors note
-        candidate_1 = child_elements[1]
-        candidate_2 = child_elements[2]
-        
-        # first identify the first candidate as editors note or related articels
-        is_articles_1 = "Artikel zur Debatte" in candidate_1.text
-        is_editors_note_1 = "Anmerkung der Redaktion" in candidate_1.text
-
-        related = {}
-        # since editor notes are always named last,
-        # the second candidate must be the comment section
-        # and does not has to be parsed
-        if is_editors_note_1:
-            related["editors_note"] = self.parse_editors_note(candidate_1)
-        
-        # if candidate 1 is related articles
-        # then check if editors note was given
-        elif is_articles_1:
-            articles = candidate_1.find_elements(By.CSS_SELECTOR, "a")
-            related["related_articles"] = [self.parse_related_articles(art) for art in articles]
-            is_editors_note_2 = "Anmerkung der Redaktion" in candidate_2.text
-            if is_editors_note_2:
-                related["editors_note"] = self.parse_editors_note(candidate_2)
-        
-        return related
-
-
-    def parse_editors_note(self, editors_element):
-        # fetch children and go into the text section
-        text_scection = editors_element.find_elements(By.CSS_SELECTOR, ":scope > *")[1]
-        # fetch text and return it
-        return text_scection.text
-
-    def parse_related_articles(self, article):
-        extracted = {}
-        article_text_els = article.text.split("\n")
-        extracted["date_published"] = article_text_els[2]
-        extracted["title"] = article_text_els[3]
-        extracted["link"] = article.get_attribute("href")
-
-        return extracted
