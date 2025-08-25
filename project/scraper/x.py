@@ -31,7 +31,7 @@ class XScraper:
       XScraper instance. To start the run call the `.run()` method.    
     """
     self.username = run_config["user"]["name"]
-    self.mail = run_config["user"]["name"]
+    self.mail = run_config["user"]["mail"]
     self.password = run_config["user"]["password"]
     self.log_path = X_LOG_DIR + run_config["log"]["fileName"] + ".txt"
 
